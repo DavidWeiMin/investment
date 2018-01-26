@@ -13,8 +13,8 @@ from WindPy import *
 w.start()
 w.start(waitTime=60)  # 命令超时时间设置成60秒
 w.isconnected()  # 即判断WindPy是否已经登陆成功
-wsd_data = w.wsd('000001.SH', 'open,high,low,OPEN,volume,amt',
-                 '2012-1-1', '2014-12-31', 'Fill=Previous')
+wsd_data = w.wsd('000001.SH', 'open,high,low,close,volume,amt',
+                 '2012-12-11', '2013-12-31', 'Fill=Previous')
 
 # 将API数据转换为DataFrame数据，并保存到本地文件
 wsd_data_ndarray = np.transpose(np.array(wsd_data.Data))
@@ -25,41 +25,44 @@ data.to_csv('D:\Documents\GitHub\investment\DATA.csv',index=True,sep=",")
 # 读取数据
 import datetime
 data = pd.read_csv('D:\Documents\GitHub\investment\DATA.CSV')
-data.index = map(lambda x: datetime.datetime.strptime(
+data.index = map(lambda x: dt.datetime.strptime(
     x, '%Y-%m-%d'), list(data['Unnamed: 0']))
 data = data.drop('Unnamed: 0', 1)
 
-def get_sharp(time, strategy, gz_return):
-    # period = time[-1] -time[0]
-    period = len(np.array(time))
-    return (log(strategy[-1] / strategy[0]) / (period / 365) - gz_return) / np.std(np.array(strategy))
-
-BASE = 2728  # np.mean(data['OPEN']) + 1000
+# 设置静态参数
+BASE = 2077  # np.mean(data['OPEN']) + 1000
 SPREAD_UP = 20
 SPREAD_DOWN = 20  # np.std(data['OPEN']) / 40
 amount = 1
-# direction = []
-# strike_price = []
-sharp = []
-beta = []
-volatility_strategy = []
-strategy_returns = []
-max_drawdown_strategy = []
+
 period = len(np.array(data.index))
 benchmark = data['OPEN'] / np.array(data.loc[data.index[0], ['OPEN']])
+Open = data['OPEN']
+total_return_benchmark = benchmark[-1] / benchmark[0] - 1
+total_return_strategy = []
+annual_return_benchmark = ((1 + total_return_benchmark) ** (252 / period) - 1)
+annual_return_strategy = []
+beta = []
+alpha = []
+daily_return_benchmark = np.array(Open[1:period]) / np.array(Open[0:-1]) - 1
+daily_volitility_benchmark = np.std(daily_return_benchmark)
+daily_volitility_strategy = []
+annual_volitility_benchmark = daily_volitility_benchmark * sqrt(252)
+annual_volitility_strategy = []
+sharp = []
+information_ratio = []
 max_drawdown_benchmark = (max(benchmark) - min(benchmark)) / max(benchmark)
-volatility_benchmark = np.std(np.array(benchmark))
-benchmark_returns = log(benchmark[-1] / benchmark[0]) / (period / 365)
+max_drawdown_strategy = []
+holding_time = []
 
-
-position_initial = range(5, 300)
+position_initial = range(1, 100)
 for initial in position_initial:
     position = [initial, ]
     buy = 0
     sell = 0
     delta = [0, ]
     base = BASE
-    capital = [300000, ]
+    capital = [1000000, ]
     for date in data.index:    # 净多头
         if delta[-1] > 0:
             if data.at[date, 'OPEN'] <= base - SPREAD_DOWN and data.at[date, 'OPEN'] <= capital[-1]:   # 买入条件
@@ -136,35 +139,68 @@ for initial in position_initial:
                 capital.extend([capital[-1]])
                 # direction.extend([0])
                 delta.extend([delta[-1]])
+    # 策略表现
     value = position[1:len(position)] * data['OPEN'] + capital[1:len(capital)]
     strategy = value / value[0]
-    sharp.extend([get_sharp(data.index, strategy, 0.0390)])
-    beta.extend([pd.Series(strategy).corr(pd.Series(benchmark))])
-    strategy_returns.extend([log(strategy[-1] / strategy[0]) / (period / 365)])
-    volatility_strategy.extend([np.std(np.array(strategy))])
+
+    total_return_strategy.extend([strategy[-1] / strategy[0] - 1])
+
+    annual_return_strategy.extend([((1 + total_return_strategy[-1]) ** (252 / period) - 1)])
+
+    daily_return_strategy = np.array(value[1:period]) / np.array(value[0:-1]) - 1
+    beta.extend([pd.Series(daily_return_strategy).corr(pd.Series(daily_return_benchmark))])
+
+    alpha.extend([annual_return_strategy[-1] - (0.03 + beta[-1] * (annual_return_benchmark - 0.03))])
+
+    daily_volitility_strategy.extend([np.std(daily_return_strategy)])
+    annual_volitility_strategy.extend([daily_volitility_strategy[-1] * sqrt(252)])
+    sharp.extend([(annual_return_strategy[-1] - 0.03) / annual_volitility_strategy[-1]])
+
+    information_ratio.extend([(annual_return_strategy[-1] - annual_return_benchmark) / (np.std(daily_return_strategy - daily_return_benchmark) * sqrt(252))])
+
     max_drawdown_strategy.extend([(max(strategy) - min(strategy)) / max(strategy)])
 
     j = 0
     for i in position:
         if i != 0:
             j = j + 1
-    holding_time = j / len(position)
+    holding_time.extend([j / len(position)])
 
-fig1 = plt.plot(position_initial,sharp)
-plt.title('sharp')
+fig1 = plt.plot(position_initial,total_return_strategy)
+plt.title('total returns')
 plt.show(fig1)
 
-fig2 = plt.plot(position_initial,beta)
+fig2 = plt.plot(position_initial,annual_return_strategy)
+plt.title('annual return')
+plt.show(fig2)
+
+fig3 = plt.plot(position_initial,daily_volitility_strategy)
+plt.title('daily volitility')
+plt.show(fig3)
+
+fig4 = plt.plot(position_initial,annual_volitility_strategy)
+plt.title('annual volitility')
+plt.show(fig4)
+
+fig5 = plt.plot(position_initial,beta)
 plt.title('beta')
-plt.show()
+plt.show(fig5)
 
-fig3 = plt.plot(position_initial,strategy_returns)
-plt.title('returns')
-plt.show()
+fig6 = plt.plot(position_initial,alpha)
+plt.title('alpha')
+plt.show(fig6)
 
-fig3 = plt.plot(position_initial,max_drawdown_strategy)
+fig7 = plt.plot(position_initial,sharp)
+plt.title('sharp')
+plt.show(fig7)
+
+fig8 = plt.plot(position_initial,information_ratio)
+plt.title('information_ratio')
+plt.show(fig8)
+
+fig9 = plt.plot(position_initial,max_drawdown_strategy)
 plt.title('max drawdown')
-plt.show()
+plt.show(fig9)
 
 # print('Benchmark Returns        \t:\t %.4f%%' % (benchmark_returns * 100))
 # print('Strategy Returns         \t:\t %.4f%%' % (strategy_returns * 100))

@@ -7,13 +7,15 @@ import scipy as sp
 import pyalgotrade
 import jhtalib
 
+global data,capital,BASE,base,spread_up,spread_down,position,buy,sell,amount,direction,delta,strike_price,r
+
 # 启动Wind并获取数据
 from WindPy import *
 w.start()
 w.start(waitTime=60)  # 命令超时时间设置成60秒
 w.isconnected()  # 即判断WindPy是否已经登陆成功
 wsd_data = w.wsd('000001.SH', 'open,high,low,close,volume,amt',
-                 '1997-7-21', '1998-3-24', 'Fill=Previous')
+                 '2012-1-1', '2014-3-24', 'Fill=Previous')
 
 # 将API数据转换为DataFrame数据，并保存到本地文件
 wsd_data_ndarray = np.transpose(np.array(wsd_data.Data))
@@ -40,90 +42,69 @@ direction = [] # 每次策略执行的交易方向
 delta = [0,] # 净头寸（仅指买入量与卖出量的差，不包含初始头寸）
 strike_price = [] # 每次策略执行的交易价格
 r = 0.03 # 无风险利率
+
+def buy_action():
+    global capital,base,position,buy,sell,direction,delta,strike_price
+    buy = buy + 1
+    strike_price.extend([data.at[date, 'OPEN']])
+    direction.extend([1])
+    delta.extend([buy - sell])
+    base = BASE - delta[-1] * spread_down
+    if capital[-1] >= data.at[date, 'OPEN'] * amount:
+        position.extend([position[-1] + amount])
+        capital.extend([(capital[-1] - amount * data.at[date, 'OPEN']) * pow(1 + r,1 / 365)])
+    else:
+        position.extend([position[-1] + capital[-1] // data.at[date, 'OPEN']])
+        capital.extend([(capital[-1] -  capital[-1] // data.at[date, 'OPEN'] * data.at[date, 'OPEN']) * pow(1 + r,1 / 365)])
+    
+def sell_action():
+    global capital,base,position,buy,sell,direction,delta,strike_price
+    sell = sell + 1
+    strike_price.extend([data.at[date, 'OPEN']])
+    direction.extend([-1])
+    delta.extend([buy - sell])
+    if delta[-1] == 0:
+        base = BASE
+    else:
+        base = BASE - delta[-1] * spread_down
+    if position[-1] > amount:
+        position.extend([position[-1] - amount])
+        capital.extend([(capital[-1] + amount * data.at[date, 'OPEN']) * pow(1 + r,1 / 365)])
+    else:
+        position.extend([0])
+        capital.extend([(capital[-1] + position[-1] * data.at[date, 'OPEN']) * pow(1 + r,1 / 365)])
+
+def null_action():
+    global capital,base,position,buy,sell,direction,delta,strike_price
+    strike_price.extend([0])                                                                 
+    position.extend([position[-1]])
+    capital.extend([(capital[-1]) * pow(1 + r,1 / 365)])
+    direction.extend([0])
+    delta.extend([delta[-1]])
+    
 for date in data.index:
-    if delta[-1] > 0:                                                                                # 净多头
-        if data.at[date, 'OPEN'] <= base - spread_down :   # 买入条件
-            buy = buy + 1
-            strike_price.extend([data.at[date, 'OPEN']])
-            direction.extend([1])
-            delta.extend([buy - sell])
-            base = BASE - delta[-1] * spread_down
-            if capital[-1] >= data.at[date, 'OPEN'] * amount:
-                position.extend([position[-1] + amount])
-                capital.extend([(capital[-1] - amount * data.at[date, 'OPEN']) * pow(1 + r,1 / 365)])
-            else:
-                position.extend([position[-1] + capital[-1] // data.at[date, 'OPEN']])
-                capital.extend([(capital[-1] -  capital[-1] // data.at[date, 'OPEN'] * data.at[date, 'OPEN']) * pow(1 + r,1 / 365)])
-        elif data.at[date, 'OPEN'] >= base + spread_up and position[-1] > 0:                        # 卖出条件
-            sell = sell + 1
-            strike_price.extend([data.at[date, 'OPEN']])
-            position.extend([position[-1] - amount])
-            capital.extend([(capital[-1] + amount * data.at[date, 'OPEN']) * pow(1 + r,1 / 365)])
-            direction.extend([-1])
-            delta.extend([buy - sell])
-            if delta[-1] == 0:
-                base = BASE
-            else:
-                base = BASE - delta[-1] * spread_down
-        else:                                                                                        # 不操作
-            strike_price.extend([0])                                                                 
-            position.extend([position[-1]])
-            capital.extend([(capital[-1]) * pow(1 + r,1 / 365)])
-            direction.extend([0])
-            delta.extend([delta[-1]])
-    elif delta[-1] < 0:                                                                              # 净空头
-        if data.at[date, 'OPEN'] >= base + spread_up and position[-1] > 0:                          # 卖出条件
-            sell = sell + 1
-            strike_price.extend([data.at[date, 'OPEN']])
-            position.extend([position[-1] - amount])
-            capital.extend([(capital[-1] + amount * data.at[date, 'OPEN']) * pow(1 + r,1 / 365)])
-            direction.extend([-1])
-            delta.extend([buy - sell])
-            base = BASE + abs(delta[-1]) * spread_up
-        elif data.at[date, 'OPEN'] <= base - spread_down and data.at[date, 'OPEN'] <= capital[-1]: # 买入条件
-            buy = buy + 1
-            strike_price.extend([data.at[date, 'OPEN']])
-            direction.extend([1])
-            delta.extend([buy - sell])
-            if delta[-1] == 0:
-                base = BASE
-            else:
-                base = BASE + abs(delta[-1]) * spread_up
-            if capital[-1] >= data.at[date, 'OPEN'] * amount:
-                position.extend([position[-1] + amount])
-                capital.extend([(capital[-1] - amount * data.at[date, 'OPEN']) * pow(1 + r,1 / 365)])
-            else:
-                position.extend([position[-1] + capital[-1] // data.at[date, 'OPEN']])
-                capital.extend([(capital[-1] -  capital[-1] // data.at[date, 'OPEN'] * data.at[date, 'OPEN']) * pow(1 + r,1 / 365)])
-        else:                                                                                        # 无操作
-            strike_price.extend([0])                                                                                   
-            position.extend([position[-1]])
-            capital.extend([capital[-1] * pow(1 + r,1 / 365)])
-            direction.extend([0])
-            delta.extend([delta[-1]])
-    else:                                                                                            # 零头寸
-        if data.at[date, 'OPEN'] <= base - spread_down and data.at[date, 'OPEN'] <= capital[-1]:   # 买入条件
-            buy = buy + 1
-            strike_price.extend([data.at[date, 'OPEN']])
-            position.extend([position[-1] + amount])
-            capital.extend([(capital[-1] - amount * data.at[date, 'OPEN']) * (1 + r /365)])
-            direction.extend([1])
-            delta.extend([buy - sell])
-            base = BASE - delta[-1] * spread_down
-        elif data.at[date, 'OPEN'] >= base + spread_up and position[-1] > 0:                        # 卖出条件
-            sell = sell + 1
-            strike_price.extend([data.at[date, 'OPEN']])
-            position.extend([position[-1] - amount])
-            capital.extend([(capital[-1] + amount * data.at[date, 'OPEN']) * pow(1 + r,1 / 365)])
-            direction.extend([-1])
-            delta.extend([buy - sell])
-            base = BASE + abs(delta[-1]) * spread_up
+    if delta[-1] > 0:                                                       # 净多头
+        if data.at[date, 'OPEN'] <= base - spread_down :                    # 买入条件
+            buy_action()                                                    # 买入操作
+        elif data.at[date, 'OPEN'] >= base + spread_up:                     # 卖出条件
+            sell_action()                                                   # 卖出操作
+        else:                                                               
+            null_action()                                                   # 不操作
+    elif delta[-1] < 0:                                                     # 净空头
+        if data.at[date, 'OPEN'] >= base + spread_up:                       # 卖出条件
+           sell_action()                                                    # 卖出操作
+        elif data.at[date, 'OPEN'] <= base - spread_down:                   # 买入条件
+            buy_action()                                                    # 买入操作
+        else:                                               
+            null_action()                                                   # 无操作
+    else:                                                                   # 零头寸
+        if data.at[date, 'OPEN'] <= base - spread_down:                     # 买入条件
+            buy_action()                                                    # 买入操作
+        elif data.at[date, 'OPEN'] >= base + spread_up:                     # 卖出条件
+            sell_action()                                                   # 卖出操作
         else:
-            strike_price.extend([0])                                                                                        # 无操作
-            position.extend([position[-1]])
-            capital.extend([capital[-1] * pow(1 + r,1 / 365)])
-            direction.extend([0])
-            delta.extend([delta[-1]])
+            null_action()                                                   # 无操作
+
 # 策略表现
 period = len(np.array(data.index))   # 回测天数
 value = position[1:len(position)] * data['OPEN'] + capital[1:len(capital)] # 股票+现金的价值
@@ -133,8 +114,8 @@ benchmark = data['OPEN'] / np.array(data.loc[data.index[0], ['OPEN']]) # 取回�
 total_return_strategy = strategy[-1] / strategy[0] - 1    # 策略总回报
 total_return_benchmark = benchmark[-1] / benchmark[0] - 1 # 基准总回报
 
-annual_return_strategy = ((1 + total_return_strategy) ** (252 / period) - 1) # 策略年化回报
-annual_return_benchmark = ((1 + total_return_benchmark) ** (252 / period) - 1) # 基准年化回报
+annual_return_strategy = ((1 + total_return_strategy) ** (252.0 / period) - 1) # 策略年化回报
+annual_return_benchmark = ((1 + total_return_benchmark) ** (252.0 / period) - 1) # 基准年化回报
 
 Open = data['OPEN']  # 取回测期间开盘价
 daily_return_benchmark = np.array(Open[1:period]) / np.array(Open[0:-1]) - 1 # 基准每日回报
@@ -151,8 +132,8 @@ daily_volitility_benchmark = np.std(daily_return_benchmark) # 基准日波动率
 annual_volitility_benchmark = np.std(daily_return_benchmark) * sqrt(252) # 基准年化波动率
 information_ratio = (annual_return_strategy - annual_return_benchmark) / (np.std(daily_return_strategy - daily_return_benchmark) * sqrt(252)) # 信息比率
 
-max_drawdown_strategy = (max(strategy) - min(strategy)) / max(strategy) # 策略最大回撤
-max_drawdown_benchmark = (max(benchmark) - min(benchmark)) / max(benchmark) # 基准最大回撤
+max_drawdown_strategy = (min(strategy) - max(strategy)) / max(strategy) # 策略最大回撤
+max_drawdown_benchmark = (min(benchmark) - max(benchmark)) / max(benchmark) # 基准最大回撤
 
 j = 0
 for i in position:
